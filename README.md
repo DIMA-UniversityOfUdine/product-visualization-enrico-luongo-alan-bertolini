@@ -10,12 +10,19 @@ un file index.html contenente tutto il codice.
 ----------------------------------------------------------------------------------------------------------------------------
 
 # RISULTATI
-Il risultato finale è un configuratore 3D che permette di cambiare materiali e colori alle varie parti del modello; inoltre è possibile
-muovere la telecamera sia attorno all'oggetto, sia facendo lo zoom, in modo da vedere il prodotto da più angolazioni.
+Il risultato finale è un configuratore 3D che permette di cambiare materiali e colori alle varie parti del modello (guscio, imbottitura,
+contorni e cuscini); inoltre è possibile sia ruotare la telecamera attorno all'oggetto, sia facendo lo zoom;
+in modo da vedere il prodotto da più angolazioni. I movimenti sono stati limitati in modo da non oltrepassare i limiti della stanza ed in modo
+da non entrare nell'oggetto.
 E' stata creata una cubemap di un ambiente chiuso attorno al modello 3D, che viene riflessa sull'oggetto. 
 
 # IMMAGINI
 
+![Example 1](pictures/Immagine1.png)
+
+![Example 2](pictures/Immagine2.png)
+
+![Example 3](pictures/Immagine3.png)
 
 --------------------------------------------------------------------------------------------------------------------------------
 
