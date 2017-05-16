@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<title>Product visualization</title>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+		<style>
+			body {
+				background-color: #f0f0f0;
+				margin: 0px;
+				overflow: hidden;
+			}
+
+			#info {
+				position: absolute;
+				top: 0px; width: 100%;
+				color: #222;
+				padding: 5px;
+				font-family: Monospace;
+				font-size: 13px;
+				text-align: center;
+			}
+
+			a {
+				color: #000;
+				text-decoration: none;
+			}
+
+			a:hover {
+				color: #0080ff;
+			}
+		</style>
+	</head>
+	<body>
+
+		<script src="lib/three.min.js"></script>
+		<script src="lib/stats.min.js"></script>
+		<script src="lib/OrbitControls.js"></script>
+		<script src='lib/dat.gui.min.js'></script>
+		<script src='lib/OBJLoader.js'></script>
+		<!-- shaders -->
+
+		<script type="text/x-glsl" id="vertex">
+		varying vec3 vNormal;
+		varying vec3 vPosition;
+		varying vec2 uVv;
+		varying vec3 wPosition;
+		uniform sampler2D displacementMap;
+		uniform float displacementScale;
+
+		void main() {
+			vec4 dv = texture2D( displacementMap, uv.xy );
+			float df = dv.z * displacementScale;
+			vec4 vPos = vec4(normalize(position) * df, 1.0) + vec4(position, 1.0);
+			vPosition = (modelViewMatrix * vec4(position, 1.0)).xyz;
+			vNormal = normalMatrix * normal;
+			uVv = uv;
+			wPosition = (modelMatrix * vec4( position, 1.0 )).xyz;
+			gl_Position = projectionMatrix * modelViewMatrix * vPos;
+		}
+		</script>
+
+		<script type="text/x-glsl" id="fragment">
+			varying vec3 vNormal;
+			varying vec3 vPosition;
+			varying vec2 uVv;
+			varying vec3 wPosition;
+			uniform vec3 pointLightPosition1; // in world space
+			uniform vec3 pointLightPosition2; // in world space
+			uniform vec3 pointLightPosition3; // in world space
+			uniform vec3 clight;
+			uniform vec3 ambientLight;
+			uniform sampler2D specularMap;
+			uniform sampler2D diffuseMap;
+			uniform sampler2D roughnessMap;
+			uniform sampler2D aoMap;
+			uniform sampler2D normalMap;
+			uniform samplerCube envMap;
+			const float PI = 3.14159;
+
+			vec3 cdiff;
+			vec3 cspec;
+			float roughness;
+
+			vec3 FSchlick(float lDoth) {
+				return (cspec + (vec3(1.0)-cspec)*pow(1.0 - lDoth,5.0));
+			}
+
+			float DGGX(float nDoth, float alpha) {
+				float alpha2 = max(alpha*alpha, 0.01);
+				float d = nDoth*nDoth*(alpha2-1.0)+1.0;
+				return (  alpha2 / (PI*d*d));
+			}
+
+			float G1(float dotProduct, float k) {
+				return (dotProduct / (dotProduct*(1.0-k) + k) );
+			}
+
+			float GSmith(float nDotv, float nDotl) {
+					float k = roughness*roughness;
+					return G1(nDotl,k)*G1(nDotv,k);
+			}
+			
+			#extension GL_OES_standard_derivatives : enable
+
+			vec3 perturbNormal2Arb( vec3 eye_pos, vec3 surf_norm ) {
+
+				vec3 q0 = dFdx( eye_pos.xyz );
+				vec3 q1 = dFdy( eye_pos.xyz );
+				vec2 st0 = dFdx( uVv.st );
+				vec2 st1 = dFdy( uVv.st );
+
+				vec3 S = normalize(  q0 * st1.t - q1 * st0.t );
+				vec3 T = normalize( -q0 * st1.s + q1 * st0.s );
+				vec3 N =  surf_norm ;
+
+				vec3 mapN = normalize(texture2D( normalMap, uVv ).xyz * 2.0 - 1.0);
+				mat3 tsn = mat3( S, T, N );
+				return normalize( tsn * mapN );
+			}
+			
+			vec3 inverseTransformDirection( in vec3 dir, in mat4 matrix ) {
+				return normalize( ( vec4( dir, 0.0 ) * matrix ).xyz );
+			}
+			
+			vec3 findOutRadiance(vec3 plp) {
+				vec4 lPosition = viewMatrix * vec4( plp, 1.0 );
+				vec3 l = normalize(lPosition.xyz - vPosition.xyz);
+				vec3 n = perturbNormal2Arb( vPosition, normalize( vNormal ));
+				vec3 v = normalize( -vPosition);
+				vec3 h = normalize( v + l);
+				vec3 worldN = inverseTransformDirection( n, viewMatrix );
+				vec3 worldV = cameraPosition - wPosition ;
+				vec3 r = normalize( reflect(-worldV,worldN));
+				// small quantity to prevent divisions by 0
+				float nDotl = max(dot( n, l ),0.000001);
+				float lDoth = max(dot( l, h ),0.000001);
+				float nDoth = max(dot( n, h ),0.000001);
+				float vDoth = max(dot( v, h ),0.000001);
+				float nDotv = max(dot( n, v ),0.000001);
+
+				cdiff = texture2D( diffuseMap, uVv ).rgb;
+				// texture in sRGB, linearize
+				cdiff = pow( cdiff, vec3(2.2));
+				cspec = texture2D( specularMap, uVv ).rgb;
+				// texture in sRGB, linearize
+				cspec = pow( cspec, vec3(2.2));
+				roughness = texture2D( roughnessMap, uVv).r; // no need to linearize roughness map
+
+				vec3 fresnel = FSchlick(lDoth);
+				// negate x to account for how cubemap is displayed on background
+				vec3 envLight = textureCube( envMap, vec3(-r.x, r.yz)).rgb;
+				// texture in sRGB, linearize
+				envLight = pow( envLight, vec3(2.2));
+				vec3 BRDF = (vec3(1.0)-fresnel*envLight)*cdiff/PI + fresnel*envLight*GSmith(nDotv,nDotl)*DGGX(nDoth,roughness*roughness)/
+					(4.0*nDotl*nDotv);
+				vec3 outRadianceFin = PI* clight * nDotl * BRDF;
+				return outRadianceFin;
+			}
+
+			
+			void main() {
+				vec3 outRadiance1 = findOutRadiance(pointLightPosition1);
+				vec3 outRadiance2 = findOutRadiance(pointLightPosition2);
+				vec3 outRadiance3 = findOutRadiance(pointLightPosition3);
+				vec3 outRadiance = outRadiance1 + outRadiance2 + outRadiance3 + ambientLight*cdiff*texture2D( aoMap, uVv ).xyz;;
+				// gamma encode the final value
+				gl_FragColor = vec4(pow( outRadiance, vec3(1.0/2.2)), 1.0);
+			}
+		</script>
+
+		<!-- three.js code -->
+
+		<script>
+
+			var renderer = new THREE.WebGLRenderer( { antialias: true } );
+			var camera = new THREE.PerspectiveCamera( 35, window.innerWidth / window.innerHeight, 1, 1000 );
+			var controls = new THREE.OrbitControls( camera, renderer.domElement );
+			var scene = new THREE.Scene();
+
+
+			var textureParameters = {
+				Shell: "Platinum",
+				Pillows: "Camouflage",
+				Trim: "Blue Matte Plastic",
+				Padding: "Vintage"
+			}
+			
+			var loader = new THREE.CubeTextureLoader();
+				loader.setPath('textures/cubemap/');
+
+				var textureCube = loader.load( [
+					'positivex.png', 'negativex.png',
+					'positivey.png', 'negativey.png',
+					'positivez.png', 'negativez.png'
+				] );
+			
+
+			var normalMap = [	loadTexture( "textures/" + textureParameters.Shell + "_Normal.png" ),
+								loadTexture( "textures/" + textureParameters.Pillows + "_Normal.png" ),
+								loadTexture( "textures/" + textureParameters.Pillows + "_Normal.png" ),
+								loadTexture( "textures/" + textureParameters.Trim + "_Normal.png" ),
+								loadTexture( "textures/" + textureParameters.Padding + "_Normal.png" )
+							];
+							
+			var diffuseMap = [	loadTexture( "textures/" + textureParameters.Shell + "_Diffuse.png" ),
+								loadTexture( "textures/" + textureParameters.Pillows + "_Diffuse.png" ),
+								loadTexture( "textures/" + textureParameters.Pillows + "_Diffuse.png" ),
+								loadTexture( "textures/" + textureParameters.Trim + "_Diffuse.png" ),
+								loadTexture( "textures/" + textureParameters.Padding + "_Diffuse.png" )
+							];
+							
+			var specularMap = [	loadTexture( "textures/" + textureParameters.Shell + "_Specular.png" ),
+								loadTexture( "textures/" + textureParameters.Pillows + "_Specular.png" ),
+								loadTexture( "textures/" + textureParameters.Pillows + "_Specular.png" ),
+								loadTexture( "textures/" + textureParameters.Trim + "_Specular.png" ),
+								loadTexture( "textures/" + textureParameters.Padding + "_Specular.png" ),
+							];
+							
+			var roughnessMap = [loadTexture( "textures/" + textureParameters.Shell + "_Roughness.png" ),
+								loadTexture( "textures/" + textureParameters.Pillows + "_Roughness.png" ),
+								loadTexture( "textures/" + textureParameters.Pillows + "_Roughness.png" ),
+								loadTexture( "textures/" + textureParameters.Trim + "_Roughness.png" ),
+								loadTexture( "textures/" + textureParameters.Padding + "_Roughness.png" ),
+							];
+							
+			var aoMap = 	[	loadTexture( "textures/" + textureParameters.Shell + "_AmbientOcclusion.png" ),
+								loadTexture( "textures/" + textureParameters.Pillows + "_AmbientOcclusion.png" ),
+								loadTexture( "textures/" + textureParameters.Pillows + "_AmbientOcclusion.png" ),
+								loadTexture( "textures/" + textureParameters.Trim + "_AmbientOcclusion.png" ),
+								loadTexture( "textures/" + textureParameters.Padding + "_AmbientOcclusion.png" ),
+							];
+							
+			var displacementMap = [ loadTexture( "textures/" + textureParameters.Shell + "_Height.png" ),
+								loadTexture( "textures/" + textureParameters.Pillows + "_Height.png" ),
+								loadTexture( "textures/" + textureParameters.Pillows + "_Height.png" ),
+								loadTexture( "textures/" + textureParameters.Trim + "_Height.png" ),
+								loadTexture( "textures/" + textureParameters.Padding + "_Height.png" ),
+							];
+
+			var shellUniforms = {
+						specularMap: { type: "t", value: specularMap},
+						diffuseMap:	{ type: "t", value: diffuseMap},
+						roughnessMap:	{ type: "t", value: roughnessMap},
+						aoMap:	{ type: "t", value: aoMap},
+						ambientLight:	{ type: "v3", value: new THREE.Vector3(0.2, 0.2, 0.2) },
+						pointLightPosition1:	{ type: "v3", value: new THREE.Vector3() },
+						pointLightPosition2:	{ type: "v3", value: new THREE.Vector3() },
+						pointLightPosition3:	{ type: "v3", value: new THREE.Vector3() },
+						clight:	{ type: "v3", value: new THREE.Vector3(1.0, 1.0, 1.0) },
+						normalMap:	{ type: "t", value: normalMap},
+						displacementMap: {type: "t", value: displacementMap },
+						displacementScale: {type: "f", value: 1.0},
+						envMap:	{ type: "t", value: textureCube}
+					};
+				
+			var pillowUniforms = {
+						specularMap: { type: "t", value: specularMap[1]},
+						diffuseMap:	{ type: "t", value: diffuseMap[1]},
+						roughnessMap:	{ type: "t", value: roughnessMap[1]},
+						aoMap:	{ type: "t", value: aoMap},
+						ambientLight:	{ type: "v3", value: new THREE.Vector3(0.2, 0.2, 0.2) },
+						pointLightPosition1:	{ type: "v3", value: new THREE.Vector3() },
+						pointLightPosition2:	{ type: "v3", value: new THREE.Vector3() },
+						pointLightPosition3:	{ type: "v3", value: new THREE.Vector3() },
+						clight:	{ type: "v3", value: new THREE.Vector3(1.0, 1.0, 1.0) },
+						normalMap:	{ type: "t", value: normalMap[1]},
+						displacementMap: {type: "t", value: displacementMap },
+						displacementScale: {type: "f", value: 1.0},
+						envMap:	{ type: "t", value: textureCube},
+					};
+					
+			var trimUniforms = {
+						specularMap: { type: "t", value: specularMap[3]},
+						diffuseMap:	{ type: "t", value: diffuseMap[3]},
+						roughnessMap:	{ type: "t", value: roughnessMap[3]},
+						aoMap:	{ type: "t", value: aoMap},
+						ambientLight:	{ type: "v3", value: new THREE.Vector3(0.2, 0.2, 0.2) },
+						pointLightPosition1:	{ type: "v3", value: new THREE.Vector3() },
+						pointLightPosition2:	{ type: "v3", value: new THREE.Vector3() },
+						pointLightPosition3:	{ type: "v3", value: new THREE.Vector3() },
+						clight:	{ type: "v3", value: new THREE.Vector3(1.0, 1.0, 1.0) },
+						normalMap:	{ type: "t", value: normalMap[3]},
+						displacementMap: {type: "t", value: displacementMap },
+						displacementScale: {type: "f", value: 1.0},
+						envMap:	{ type: "t", value: textureCube},
+					};
+					
+			var paddingUniforms = {
+						specularMap: { type: "t", value: specularMap[4]},
+						diffuseMap:	{ type: "t", value: diffuseMap[4]},
+						roughnessMap:	{ type: "t", value: roughnessMap[4]},
+						aoMap:	{ type: "t", value: aoMap},
+						ambientLight:	{ type: "v3", value: new THREE.Vector3(0.2, 0.2, 0.2) },
+						pointLightPosition1:	{ type: "v3", value: new THREE.Vector3() },
+						pointLightPosition2:	{ type: "v3", value: new THREE.Vector3() },
+						pointLightPosition3:	{ type: "v3", value: new THREE.Vector3() },
+						clight:	{ type: "v3", value: new THREE.Vector3(1.0, 1.0, 1.0) },
+						normalMap:	{ type: "t", value: normalMap[4]},
+						displacementMap: {type: "t", value: displacementMap },
+						displacementScale: {type: "f", value: 1.0},
+						envMap:	{ type: "t", value: textureCube},
+					};
+
+			var uniforms = [shellUniforms, pillowUniforms, trimUniforms, paddingUniforms];
+			
+			vs = document.getElementById("vertex").textContent;
+			fs = document.getElementById("fragment").textContent;
+
+			var ourMaterial = [	new THREE.ShaderMaterial({ uniforms: uniforms[0], vertexShader: vs, fragmentShader: fs }), 
+								new THREE.ShaderMaterial({ uniforms: uniforms[1], vertexShader: vs, fragmentShader: fs }),
+								new THREE.ShaderMaterial({ uniforms: uniforms[1], vertexShader: vs, fragmentShader: fs }),
+								new THREE.ShaderMaterial({ uniforms: uniforms[2], vertexShader: vs, fragmentShader: fs }),
+								new THREE.ShaderMaterial({ uniforms: uniforms[3], vertexShader: vs, fragmentShader: fs })
+							];
+								
+			var loader = new THREE.OBJLoader();
+				loader.load( "models/ball_chair.obj", function ( group ) {
+				for(i=0; i<group.children.length; i++){
+					geometry = group.children[i].geometry;
+					mesh = new THREE.Mesh( geometry, ourMaterial[i] );
+					mesh.scale.multiplyScalar( 0.1 );
+					mesh.position.set(0, 0, 0);
+					scene.add(mesh);
+				}
+				diffuseMap[3] = loadTexture( "textures/Blue Lucid Plastic_Diffuse.png" );
+				specularMap[3] = loadTexture( "textures/Blue Lucid Plastic_Specular.png" );
+				roughnessMap[3] = loadTexture( "textures/Blue Lucid Plastic_Roughness.png" );
+				normalMap[3] = loadTexture( "textures/Blue Lucid Plastic_Normal.png");
+				aoMap[3] = loadTexture("textures/Blue Lucid Plastic_AmbientOcclusion.png");
+				displacementMap[3] = loadTexture("textures/Blue Lucid Plastic_Height.png");
+				ourMaterial[3].needsUpdate = true;
+				updateUniforms();
+			} );
+
+
+			var light1 = new THREE.PointLight( 0xff0000, 1, 100 );
+			light1.position.set( 0, 64, 0 );
+			
+			var light2 = new THREE.PointLight( 0xff0000, 1, 100 );
+			light2.position.set( 64, 20, 0 );
+			
+			var light3 = new THREE.PointLight( 0xff0000, 1, 100 );
+			light3.position.set( -64, 20, 0 );
+			
+			var geometry1 = new THREE.PlaneGeometry( 30, 15, 32 );
+			var geometry2 = new THREE.PlaneGeometry(30, 30, 32);
+			var frontMaterial = new THREE.MeshBasicMaterial( {color: 0xffffff, side: THREE.FrontSide, map: loadTexture( "textures/cubemap/positivez.png" )} );
+			var backMaterial = new THREE.MeshBasicMaterial( {color: 0xffffff, side: THREE.FrontSide, map: loadTexture( "textures/cubemap/negativez.png" )} );
+			var rightMaterial = new THREE.MeshBasicMaterial( {color: 0xffffff, side: THREE.FrontSide, map: loadTexture( "textures/cubemap/negativex.png" )} );
+			var leftMaterial = new THREE.MeshBasicMaterial( {color: 0xffffff, side: THREE.FrontSide, map: loadTexture( "textures/cubemap/positivex.png" )} );
+			var topMaterial = new THREE.MeshBasicMaterial( {color: 0xffffff, side: THREE.FrontSide, map: loadTexture( "textures/cubemap/positivey.png" )} );
+			var bottomMaterial = new THREE.MeshBasicMaterial( {color: 0xffffff, side: THREE.FrontSide, map: loadTexture( "textures/cubemap/negativey.png" )} );
+			var material1 = new THREE.MeshBasicMaterial( {color: 0xffffff, side: THREE.FrontSide});
+			var frontPlane = new THREE.Mesh( geometry1, frontMaterial );
+			frontPlane.rotateY(Math.PI);
+			frontPlane.position.set(0, 7.5, 15);
+			var backPlane = new THREE.Mesh( geometry1, backMaterial );
+			backPlane.position.set(0, 7.5, -15);
+			var rightPlane = new THREE.Mesh( geometry1, rightMaterial );
+			rightPlane.rotateY(3/2*Math.PI);
+			rightPlane.position.set(15, 7.5, 0);
+			var leftPlane = new THREE.Mesh( geometry1, leftMaterial );
+			leftPlane.position.set(-15, 7.5, 0);
+			leftPlane.rotateY(-3/2*Math.PI);
+			var bottomPlane = new THREE.Mesh( geometry2, bottomMaterial );
+			bottomPlane.rotateX(-Math.PI/2);
+			bottomPlane.rotateZ(Math.PI);
+			var topPlane = new THREE.Mesh( geometry2, topMaterial );
+			topPlane.position.set(0, 15, 0);
+			topPlane.rotateX(Math.PI/2);
+			topPlane.rotateZ(Math.PI);
+			
+			
+			shellUniforms.pointLightPosition1.value = new THREE.Vector3(light1.position.x,
+																		light1.position.y,
+																		light1.position.z
+													);
+													
+			shellUniforms.pointLightPosition2.value = new THREE.Vector3(light2.position.x,
+																		light2.position.y,
+																		light2.position.z
+													);
+													
+			shellUniforms.pointLightPosition3.value = new THREE.Vector3(light3.position.x,
+																		light3.position.y,
+																		light3.position.z
+													);
+			
+			pillowUniforms.pointLightPosition1.value = new THREE.Vector3(light1.position.x,
+																		light1.position.y,
+																		light1.position.z
+													);
+													
+			pillowUniforms.pointLightPosition2.value = new THREE.Vector3(light2.position.x,
+																		light2.position.y,
+																		light2.position.z
+													);	
+			
+			pillowUniforms.pointLightPosition3.value = new THREE.Vector3(light3.position.x,
+																		light3.position.y,
+																		light3.position.z
+													);
+			
+			trimUniforms.pointLightPosition1.value = new THREE.Vector3(light1.position.x,
+																		light1.position.y,
+																		light1.position.z
+													);
+													
+			trimUniforms.pointLightPosition2.value = new THREE.Vector3(light2.position.x,
+																		light2.position.y,
+																		light2.position.z
+													);
+													
+			trimUniforms.pointLightPosition3.value = new THREE.Vector3(light3.position.x,
+																		light3.position.y,
+																		light3.position.z
+													);
+			
+			paddingUniforms.pointLightPosition1.value = new THREE.Vector3(light1.position.x,
+																		light1.position.y,
+																		light1.position.z
+													);
+													
+			paddingUniforms.pointLightPosition2.value = new THREE.Vector3(light2.position.x,
+																		light2.position.y,
+																		light2.position.z
+													);	
+
+			paddingUniforms.pointLightPosition3.value = new THREE.Vector3(light3.position.x,
+																		light3.position.y,
+																		light3.position.z
+													);
+
+			var gui;
+			var stats = new Stats();
+
+			function loadTexture(file) {
+					var texture = new THREE.TextureLoader().load( file , function ( texture ) {
+
+						texture.minFilter = THREE.LinearMipMapLinearFilter;
+						texture.anisotropy = renderer.getMaxAnisotropy();
+						texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+						texture.offset.set( 0, 0 );
+						texture.needsUpdate = true;
+						render();
+					} )
+					return texture;
+			}
+
+			function init() {
+
+				renderer.setClearColor( 0xf0f0f0 );
+
+				var size = 10;
+				var divisions = 10;
+
+				
+				camera.position.set( 0, 5, 15 );
+				camera.lookAt(0, 5, 0);
+				scene.add( camera );
+			
+				scene.add(frontPlane);
+				scene.add(backPlane);
+				scene.add(rightPlane);
+				scene.add(leftPlane);
+				scene.add(bottomPlane);
+				scene.add(topPlane);
+			
+				scene.add(light1);
+				scene.add(light2);
+				scene.add(light3);
+				
+
+				document.body.appendChild( renderer.domElement );
+				renderer.setPixelRatio( window.devicePixelRatio );
+				renderer.setSize( window.innerWidth, window.innerHeight );
+
+				controls.addEventListener( 'change', render );
+				controls.minDistance = 9;
+				controls.maxDistance = 19;
+				controls.maxPolarAngle = 1.48353;
+				controls.enablePan = false;
+				controls.update();
+
+				window.addEventListener( 'resize', onResize, false );
+
+
+				stats.domElement.style.position = 'absolute';
+				stats.domElement.style.top = '0px';
+				document.body.appendChild( stats.domElement );
+
+				ourMaterial[0].needsUpdate = true;
+				ourMaterial[1].needsUpdate = true;
+				ourMaterial[2].needsUpdate = true;
+				ourMaterial[3].needsUpdate = true;
+				ourMaterial[4].needsUpdate = true;
+				
+				
+			}
+
+			function onResize() {
+
+				renderer.setSize( window.innerWidth, window.innerHeight );
+				camera.aspect = ( window.innerWidth / window.innerHeight );
+				camera.updateProjectionMatrix();
+
+			}
+
+			function update() {
+				requestAnimationFrame( update );
+				stats.update();
+			}
+
+			function render() {
+				updateUniforms();
+				renderer.render( scene, camera );
+			}
+
+			function clearGui() {
+
+				if ( gui ) gui.destroy();
+				gui = new dat.GUI();
+				gui.open();
+
+			}
+
+			function buildGui() {
+
+				clearGui();
+				textureSettings = gui.addFolder('Materials');
+				textureSettings.add(textureParameters,'Shell',[ 'Platinum', 'Matte Platinum', 'Blue Matte Plastic', 'Blue Lucid Plastic', 'Red Matte Plastic','Red Lucid Plastic', 'Oak Wood']).onChange(
+					function( newVal ) {
+							diffuseMap[0] = loadTexture( "textures/" + newVal + "_Diffuse.png" );
+							specularMap[0] = loadTexture( "textures/" + newVal + "_Specular.png" );
+							roughnessMap[0] = loadTexture( "textures/" + newVal + "_Roughness.png" );
+							normalMap[0] = loadTexture( "textures/" + newVal + "_Normal.png");
+							aoMap[0] = loadTexture("textures/" + newVal + "_AmbientOcclusion.png");
+							displacementMap[0] = loadTexture("textures/" + newVal + "_Height.png");
+							ourMaterial[0].needsUpdate = true;
+							render()
+					});
+				textureSettings.add(textureParameters,'Pillows',[ 'Camouflage', 'Jeans' ]).onChange(
+					function( newVal ) {
+							diffuseMap[1] = loadTexture( "textures/" + newVal + "_Diffuse.png" );
+							specularMap[1] = loadTexture( "textures/" + newVal + "_Specular.png" );
+							roughnessMap[1] = loadTexture( "textures/" + newVal + "_Roughness.png" );
+							normalMap[1] = loadTexture( "textures/" + newVal + "_Normal.png");
+							aoMap[1] = loadTexture("textures/" + newVal + "_AmbientOcclusion.png");
+							displacementMap[1] = loadTexture("textures/" + newVal + "_Height.png");
+							ourMaterial[1].needsUpdate = true;
+							diffuseMap[2] = loadTexture( "textures/" + newVal + "_Diffuse.png" );
+							specularMap[2] = loadTexture( "textures/" + newVal + "_Specular.png" );
+							roughnessMap[2] = loadTexture( "textures/" + newVal + "_Roughness.png" );
+							normalMap[2] = loadTexture( "textures/" + newVal + "_Normal.png");
+							aoMap[2] = loadTexture("textures/" + newVal + "_AmbientOcclusion.png");
+							displacementMap[2] = loadTexture("textures/" + newVal + "_Height.png");
+							ourMaterial[2].needsUpdate = true;
+							render()
+					});
+				textureSettings.add(textureParameters,'Trim',[ 'Platinum', 'Matte Platinum', 'Blue Matte Plastic', 'Blue Lucid Plastic', 'Red Matte Plastic', 'Red Lucid Plastic', 'Oak Wood' ]).onChange(
+					function( newVal ) {
+							diffuseMap[3] = loadTexture( "textures/" + newVal + "_Diffuse.png" );
+							specularMap[3] = loadTexture( "textures/" + newVal + "_Specular.png" );
+							roughnessMap[3] = loadTexture( "textures/" + newVal + "_Roughness.png" );
+							normalMap[3] = loadTexture( "textures/" + newVal + "_Normal.png");
+							aoMap[3] = loadTexture("textures/" + newVal + "_AmbientOcclusion.png");
+							displacementMap[3] = loadTexture("textures/" + newVal + "_Height.png");
+							ourMaterial[3].needsUpdate = true;
+							render()
+					});
+				textureSettings.add(textureParameters,'Padding',[ 'Gold', 'Vintage', 'Silk' ]).onChange(
+					function( newVal ) {
+							diffuseMap[4] = loadTexture( "textures/" + newVal + "_Diffuse.png" );
+							specularMap[4] = loadTexture( "textures/" + newVal + "_Specular.png" );
+							roughnessMap[4] = loadTexture( "textures/" + newVal + "_Roughness.png" );
+							normalMap[4] = loadTexture( "textures/" + newVal + "_Normal.png");
+							aoMap[4] = loadTexture("textures/" + newVal + "_AmbientOcclusion.png");
+							displacementMap[4] = loadTexture("textures/" + newVal + "_Height.png");
+							ourMaterial[4].needsUpdate = true;
+							render()
+					});
+				
+			}
+				
+			function updateUniforms() {
+					shellUniforms.diffuseMap.value = diffuseMap[0];
+					shellUniforms.specularMap.value = specularMap[0];
+					shellUniforms.roughnessMap.value = roughnessMap[0];
+					shellUniforms.normalMap.value = normalMap[0];
+					shellUniforms.aoMap.value = aoMap[0];
+					shellUniforms.displacementMap.value = displacementMap[0];
+					pillowUniforms.diffuseMap.value = diffuseMap[1];
+					pillowUniforms.specularMap.value = specularMap[1];
+					pillowUniforms.roughnessMap.value = roughnessMap[1];
+					pillowUniforms.normalMap.value = normalMap[1];
+					pillowUniforms.aoMap.value = aoMap[1];
+					pillowUniforms.displacementMap.value = displacementMap[1];
+					trimUniforms.diffuseMap.value = diffuseMap[3];
+					trimUniforms.specularMap.value = specularMap[3];
+					trimUniforms.roughnessMap.value = roughnessMap[3];
+					trimUniforms.normalMap.value = normalMap[3];
+					trimUniforms.aoMap.value = aoMap[3];
+					trimUniforms.displacementMap.value = displacementMap[3];
+					paddingUniforms.diffuseMap.value = diffuseMap[4];
+					paddingUniforms.specularMap.value = specularMap[4];
+					paddingUniforms.roughnessMap.value = roughnessMap[4];
+					paddingUniforms.normalMap.value = normalMap[4];
+					paddingUniforms.aoMap.value = aoMap[4];
+					paddingUniforms.displacementMap.value = displacementMap[4];
+			}
+
+			init();
+			buildGui();
+			update();
+			render();
+
+		</script>
+	</body>
+</html>
