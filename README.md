@@ -18,11 +18,11 @@ E' stata creata una cubemap di un ambiente chiuso attorno al modello 3D, che vie
 
 # IMMAGINI
 
-![Example 1](pictures/Immagine1.png)
+![Example 1](pictures/Immagine1.PNG)
 
-![Example 2](pictures/Immagine2.png)
+![Example 2](pictures/Immagine2.PNG)
 
-![Example 3](pictures/Immagine3.png)
+![Example 3](pictures/Immagine3.PNG)
 
 --------------------------------------------------------------------------------------------------------------------------------
 
