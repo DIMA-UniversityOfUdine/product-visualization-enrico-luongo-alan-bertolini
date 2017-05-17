@@ -5,6 +5,8 @@
 L'idea è stata quella di creare un configuratore 3D di sedie, che mostra un modello 3D configurabile all'interno di un ambiente chiuso.
 Il progetto fa uso delle librerie di Three.js contenute in lib, delle textures per i modelli contenute nella cartella textures,
 un file index.html contenente tutto il codice.
+La BRDF utilizzata è quella vista a lezione, modificata in modo da integrare l'uso di 3 luci, la normal map, la displacement map e la environment light per le 
+varie parti dell'oggetto.
 
 
 ----------------------------------------------------------------------------------------------------------------------------

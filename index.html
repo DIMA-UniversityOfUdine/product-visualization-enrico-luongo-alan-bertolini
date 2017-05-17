@@ -324,12 +324,8 @@
 					scene.add(mesh);
 				}
 				diffuseMap[3] = loadTexture( "textures/Blue Lucid Plastic_Diffuse.png" );
-				specularMap[3] = loadTexture( "textures/Blue Lucid Plastic_Specular.png" );
-				roughnessMap[3] = loadTexture( "textures/Blue Lucid Plastic_Roughness.png" );
-				normalMap[3] = loadTexture( "textures/Blue Lucid Plastic_Normal.png");
-				aoMap[3] = loadTexture("textures/Blue Lucid Plastic_AmbientOcclusion.png");
-				displacementMap[3] = loadTexture("textures/Blue Lucid Plastic_Height.png");
-				ourMaterial[3].needsUpdate = true;
+				updateUniforms();
+				diffuseMap[3] = loadTexture( "textures/Blue Matte Plastic_Diffuse.png" );
 				updateUniforms();
 			} );
 
