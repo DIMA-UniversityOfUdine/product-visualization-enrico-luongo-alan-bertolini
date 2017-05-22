@@ -339,33 +339,6 @@
 			var light3 = new THREE.PointLight( 0xff0000, 1, 100 );
 			light3.position.set( -64, 20, 0 );
 			
-			var geometry1 = new THREE.PlaneGeometry( 30, 15, 32 );
-			var geometry2 = new THREE.PlaneGeometry(30, 30, 32);
-			var frontMaterial = new THREE.MeshBasicMaterial( {color: 0xffffff, side: THREE.FrontSide, map: loadTexture( "textures/cubemap/positivez.png" )} );
-			var backMaterial = new THREE.MeshBasicMaterial( {color: 0xffffff, side: THREE.FrontSide, map: loadTexture( "textures/cubemap/negativez.png" )} );
-			var rightMaterial = new THREE.MeshBasicMaterial( {color: 0xffffff, side: THREE.FrontSide, map: loadTexture( "textures/cubemap/negativex.png" )} );
-			var leftMaterial = new THREE.MeshBasicMaterial( {color: 0xffffff, side: THREE.FrontSide, map: loadTexture( "textures/cubemap/positivex.png" )} );
-			var topMaterial = new THREE.MeshBasicMaterial( {color: 0xffffff, side: THREE.FrontSide, map: loadTexture( "textures/cubemap/positivey.png" )} );
-			var bottomMaterial = new THREE.MeshBasicMaterial( {color: 0xffffff, side: THREE.FrontSide, map: loadTexture( "textures/cubemap/negativey.png" )} );
-			var material1 = new THREE.MeshBasicMaterial( {color: 0xffffff, side: THREE.FrontSide});
-			var frontPlane = new THREE.Mesh( geometry1, frontMaterial );
-			frontPlane.rotateY(Math.PI);
-			frontPlane.position.set(0, 7.5, 15);
-			var backPlane = new THREE.Mesh( geometry1, backMaterial );
-			backPlane.position.set(0, 7.5, -15);
-			var rightPlane = new THREE.Mesh( geometry1, rightMaterial );
-			rightPlane.rotateY(3/2*Math.PI);
-			rightPlane.position.set(15, 7.5, 0);
-			var leftPlane = new THREE.Mesh( geometry1, leftMaterial );
-			leftPlane.position.set(-15, 7.5, 0);
-			leftPlane.rotateY(-3/2*Math.PI);
-			var bottomPlane = new THREE.Mesh( geometry2, bottomMaterial );
-			bottomPlane.rotateX(-Math.PI/2);
-			bottomPlane.rotateZ(Math.PI);
-			var topPlane = new THREE.Mesh( geometry2, topMaterial );
-			topPlane.position.set(0, 15, 0);
-			topPlane.rotateX(Math.PI/2);
-			topPlane.rotateZ(Math.PI);
 			
 			
 			shellUniforms.pointLightPosition1.value = new THREE.Vector3(light1.position.x,
@@ -447,21 +420,10 @@
 			function init() {
 
 				renderer.setClearColor( 0xf0f0f0 );
-
-				var size = 10;
-				var divisions = 10;
-
 				
-				camera.position.set( 0, 5, 15 );
-				camera.lookAt(0, 5, 0);
+				camera.position.set( 0, 10, 5 );
+				camera.lookAt(0, 10, 5);
 				scene.add( camera );
-			
-				scene.add(frontPlane);
-				scene.add(backPlane);
-				scene.add(rightPlane);
-				scene.add(leftPlane);
-				scene.add(bottomPlane);
-				scene.add(topPlane);
 			
 				scene.add(light1);
 				scene.add(light2);
@@ -473,8 +435,8 @@
 				renderer.setSize( window.innerWidth, window.innerHeight );
 
 				controls.addEventListener( 'change', render );
-				controls.minDistance = 9;
-				controls.maxDistance = 19;
+				controls.minDistance = 1;
+				controls.maxDistance = 1000;
 				controls.maxPolarAngle = 1.48353;
 				controls.enablePan = false;
 				controls.update();
