@@ -47,15 +47,15 @@ Rimossa la cubemap di sfondo.
 Portato il modello 3D in primo piano.
 
 # 22/05/2017
-Modificati parametri della camera (FOV, angolo di rotazione); limitato zoom in e zoom out
+Modificati parametri della camera (FOV, angolo di rotazione); limitato zoom in e zoom out.
 
 # 23/05/2017
-Rimossa la dat.gui.
-Aggiunta una pagina iniziale una GUI più adatta.
+Rimossa la dat.gui e sostituita con una pagina di benvenuto dov'è possibile selezionare 
+i materiali.
 
 # 24/05/2017
 Aggiunti nuovi materiali.
-Modificata la GUI.
+Modificato il template di partenza.
 
 # 25/05/2017
 Ultimi controlli e modifiche al codice.
